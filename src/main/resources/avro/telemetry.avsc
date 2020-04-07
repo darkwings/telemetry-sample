@@ -1,0 +1,98 @@
+[
+    {
+        "namespace": "it.frank.telemetry.tracking",
+        "type": "record",
+        "name": "VehiclePosition",
+        "fields": [
+            {
+                "name": "vehicleId",
+                "type": "string",
+                "doc": "The vehicleId"
+            },
+            {
+                "name": "key",
+                "type": "string",
+                "doc": "The partition key"
+            },
+            {
+                "name": "eventId",
+                "type": "string",
+                "doc": "The eventID"
+            },
+            {
+                "name": "longitude",
+                "type": "double",
+                "doc": "the longitude"
+            },
+            {
+                "name": "latitude",
+                "type": "double",
+                "doc": "the latitude"
+            },
+            {
+                "name": "timestampMs",
+                "type": "long",
+                "doc": "the timestamp"
+            }
+        ]
+    },
+    {
+        "namespace": "it.frank.telemetry.tracking",
+        "type": "record",
+        "name": "FuelConsumption",
+        "fields": [
+            {
+                "name": "vehicleId",
+                "type": "string",
+                "doc": "The vehicleId"
+            },
+            {
+                "name": "key",
+                "type": "string",
+                "doc": "The partition key"
+            },
+            {
+                "name": "eventId",
+                "type": "string",
+                "doc": "The eventID"
+            },
+            {
+                "name": "consumption",
+                "type": "double",
+                "doc": "the consumption in litres per 100km"
+            },
+            {
+                "name": "timestampMs",
+                "type": "long",
+                "doc": "the timestamp"
+            }
+        ]
+    },
+    {
+        "namespace": "it.frank.telemetry.tracking",
+        "type": "record",
+        "name": "FuelConsumptionAverage",
+        "fields": [
+            {
+                "name": "vehicleId",
+                "type": "string",
+                "doc": "The vehicleId"
+            },
+            {
+                "name": "consumptionAvg",
+                "type": "double",
+                "doc": "the consumption in litres per 100km"
+            },
+            {
+                "name": "consumptionTotal",
+                "type": "double",
+                "doc": "the consumption total"
+            },
+            {
+                "name": "numberOfRecords",
+                "type": "long",
+                "doc": "the number of records"
+            }
+        ]
+    }
+]
