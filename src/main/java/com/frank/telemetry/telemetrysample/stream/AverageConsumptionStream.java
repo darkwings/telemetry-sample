@@ -91,7 +91,8 @@ public class AverageConsumptionStream {
 
         stream.peek( ( key, value ) -> log.debug( "incoming message: {} {}", key, value ) )
                 // Change key in vehicleId
-                .groupBy((key, value) -> eventKey(value), Grouped.with(Serdes.String(), inputSerde))
+                .groupBy( ( key, value ) -> eventKey( value ), Grouped.with( Serdes.String(), inputSerde ) )
+                // Consumo medio negli ultimi 10 minuti
                 .windowedBy( TimeWindows.of( Duration.ofMinutes( 10 ) ) )
                 .aggregate( avgInitializer, ( key, sensorFuelConsumption, fuelConsumptionAverage ) -> {
                     fuelConsumptionAverage.setVehicleId( sensorFuelConsumption.getVehicleId() );
@@ -116,7 +117,7 @@ public class AverageConsumptionStream {
         return value.getVehicleId();
     }
 
-    Initializer<FuelConsumptionAverage> avgInitializer = () ->  {
+    Initializer<FuelConsumptionAverage> avgInitializer = () -> {
         FuelConsumptionAverage average = new FuelConsumptionAverage();
         average.setConsumptionTotal( 0.0 );
         average.setNumberOfRecords( 0L );
