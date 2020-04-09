@@ -100,11 +100,14 @@ public class AverageConsumptionCalculator {
         KStream<String, FuelConsumption> stream = streamsBuilder
                 .stream( inputTopic, Consumed.with( Serdes.String(), inputSerde ) );
 
+
         stream.peek( ( key, value ) -> log.debug( "incoming message: {} {}", key, value ) )
 //                .groupBy( ( key, value ) -> vehicleId( value ), Grouped.with( Serdes.String(), inputSerde ) )
                 .groupByKey()
                 // Consumo medio negli ultimi 10 minuti
                 .windowedBy( TimeWindows.of( Duration.ofMinutes( 10 ) ) )
+                // l'operatore aggregate() è stateful, ha bisogno di uno state store cui memorizzare la versione
+                // precedente dell'aggregate, in questo caso l'oggetto FuelConsumptionAverage.
                 .aggregate( avgInitializer, ( key, sensorFuelConsumption, fuelConsumptionAverage ) -> {
                     fuelConsumptionAverage.setVehicleId( sensorFuelConsumption.getVehicleId() );
                     fuelConsumptionAverage.setNumberOfRecords( fuelConsumptionAverage.getNumberOfRecords() + 1 );
@@ -117,19 +120,12 @@ public class AverageConsumptionCalculator {
                         .withValueSerde( averageSerde )
                         .withRetention( Duration.ofDays( 30 ) ) )
                 .toStream()
+                .selectKey( (k, v) -> v.getVehicleId() )
                 .peek( ( key, value ) -> log.debug( "Windowed aggregation, key {} and value {}", key, value ) )
                 //publish our results to a topic
-                .to( consumptionTopicAvg, Produced.with( windowedSerde, averageSerde ) );
+                .to( consumptionTopicAvg, Produced.with( Serdes.String(), averageSerde ) );
 
         return new KafkaStreams( streamsBuilder.build(), props() );
-    }
-
-    private ReadOnlyKeyValueStore<String, FuelConsumptionAverage> viewStore() {
-        return kafkaStreams.store( STORE_NAME, QueryableStoreTypes.keyValueStore() );
-    }
-
-    public Optional<FuelConsumptionAverage> currentAverage( String vehicleId ) {
-        return Optional.ofNullable( viewStore().get( vehicleId ) );
     }
 
     private String vehicleId( FuelConsumption value ) {
