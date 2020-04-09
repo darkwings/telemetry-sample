@@ -6,26 +6,18 @@ import it.frank.telemetry.tracking.FuelConsumption;
 import it.frank.telemetry.tracking.FuelConsumptionAverage;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.serialization.StringDeserializer;
-import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.*;
-import org.apache.kafka.streams.kstream.internals.WindowedSerializer;
-import org.apache.kafka.streams.state.QueryableStoreTypes;
-import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.apache.kafka.streams.state.WindowStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
-
 import java.time.Duration;
-import java.util.Optional;
 import java.util.Properties;
 
 import static io.confluent.kafka.serializers.AbstractKafkaAvroSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG;
@@ -93,13 +85,8 @@ public class AverageConsumptionCalculator {
         averageSerde.configure( singletonMap( SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl ),
                 false );
 
-        WindowedSerializer<String> windowedSerializer = new TimeWindowedSerializer<>( new StringSerializer() );
-        TimeWindowedDeserializer<String> windowedDeserializer = new TimeWindowedDeserializer<>( new StringDeserializer() );
-        Serde<Windowed<String>> windowedSerde = Serdes.serdeFrom( windowedSerializer, windowedDeserializer );
-
         KStream<String, FuelConsumption> stream = streamsBuilder
                 .stream( inputTopic, Consumed.with( Serdes.String(), inputSerde ) );
-
 
         stream.peek( ( key, value ) -> log.debug( "incoming message: {} {}", key, value ) )
 //                .groupBy( ( key, value ) -> vehicleId( value ), Grouped.with( Serdes.String(), inputSerde ) )
@@ -118,11 +105,12 @@ public class AverageConsumptionCalculator {
                     return fuelConsumptionAverage;
                 }, Materialized.<String, FuelConsumptionAverage, WindowStore<Bytes, byte[]>>as( STORE_NAME )
                         .withValueSerde( averageSerde )
-                        .withRetention( Duration.ofDays( 30 ) ) )
+                        .withRetention( Duration.ofDays( 5 ) ) )
                 .toStream()
+                // Change back the key to vehicleId
                 .selectKey( (k, v) -> v.getVehicleId() )
                 .peek( ( key, value ) -> log.debug( "Windowed aggregation, key {} and value {}", key, value ) )
-                //publish our results to a topic
+                //publish our results to avg topic
                 .to( consumptionTopicAvg, Produced.with( Serdes.String(), averageSerde ) );
 
         return new KafkaStreams( streamsBuilder.build(), props() );
