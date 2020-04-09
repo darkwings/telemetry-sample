@@ -16,6 +16,8 @@ import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.*;
 import org.apache.kafka.streams.kstream.internals.WindowedSerializer;
+import org.apache.kafka.streams.state.QueryableStoreTypes;
+import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.apache.kafka.streams.state.WindowStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -23,6 +25,7 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 
 import java.time.Duration;
+import java.util.Optional;
 import java.util.Properties;
 
 import static io.confluent.kafka.serializers.AbstractKafkaAvroSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG;
@@ -34,7 +37,7 @@ import static java.util.Collections.singletonMap;
  */
 @Component
 @Slf4j
-public class AverageConsumptionStream {
+public class AverageConsumptionCalculator {
 
     private static final String STORE_NAME = "eventstore";
 
@@ -48,12 +51,12 @@ public class AverageConsumptionStream {
 
     private KafkaStreams kafkaStreams;
 
-    public AverageConsumptionStream( @Value("${streams.application.id}") String streamsApplicationId,
-                                     @Value("${event.sdk.bootstrap.servers}") String bootstrapServers,
-                                     @Value("${event.sdk.schema.registry.url}") String schemaRegistryUrl,
-                                     @Value("${start.stream:false}") boolean startStream,
-                                     @Value( "${topic.fuel-consumption}" ) String consumptionTopic,
-                                     @Value( "${topic.fuel-consumption-avg}" ) String consumptionTopicAvg ) {
+    public AverageConsumptionCalculator( @Value("${streams.application.id}") String streamsApplicationId,
+                                         @Value("${event.sdk.bootstrap.servers}") String bootstrapServers,
+                                         @Value("${event.sdk.schema.registry.url}") String schemaRegistryUrl,
+                                         @Value("${start.stream:false}") boolean startStream,
+                                         @Value( "${topic.fuel-consumption}" ) String consumptionTopic,
+                                         @Value( "${topic.fuel-consumption-avg}" ) String consumptionTopicAvg ) {
         this.streamsApplicationId = streamsApplicationId;
         this.bootstrapServers = bootstrapServers;
         this.schemaRegistryUrl = schemaRegistryUrl;
@@ -119,6 +122,14 @@ public class AverageConsumptionStream {
                 .to( consumptionTopicAvg, Produced.with( windowedSerde, averageSerde ) );
 
         return new KafkaStreams( streamsBuilder.build(), props() );
+    }
+
+    private ReadOnlyKeyValueStore<String, FuelConsumptionAverage> viewStore() {
+        return kafkaStreams.store( STORE_NAME, QueryableStoreTypes.keyValueStore() );
+    }
+
+    public Optional<FuelConsumptionAverage> currentAverage( String vehicleId ) {
+        return Optional.ofNullable( viewStore().get( vehicleId ) );
     }
 
     private String vehicleId( FuelConsumption value ) {
