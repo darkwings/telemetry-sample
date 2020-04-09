@@ -10,11 +10,6 @@
                 "doc": "The vehicleId"
             },
             {
-                "name": "key",
-                "type": "string",
-                "doc": "The partition key"
-            },
-            {
                 "name": "eventId",
                 "type": "string",
                 "doc": "The eventID"
@@ -45,11 +40,6 @@
                 "name": "vehicleId",
                 "type": "string",
                 "doc": "The vehicleId"
-            },
-            {
-                "name": "key",
-                "type": "string",
-                "doc": "The partition key"
             },
             {
                 "name": "eventId",

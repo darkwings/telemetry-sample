@@ -36,21 +36,29 @@ import static java.util.Collections.singletonMap;
 @Slf4j
 public class AverageConsumptionStream {
 
+    private static final String STORE_NAME = "eventstore";
+
     private final String streamsApplicationId;
     private final String bootstrapServers;
     private final String schemaRegistryUrl;
-
-    private KafkaStreams kafkaStreams;
+    private final String consumptionTopic;
+    private final String consumptionTopicAvg;
 
     private final boolean startStream;
+
+    private KafkaStreams kafkaStreams;
 
     public AverageConsumptionStream( @Value("${streams.application.id}") String streamsApplicationId,
                                      @Value("${event.sdk.bootstrap.servers}") String bootstrapServers,
                                      @Value("${event.sdk.schema.registry.url}") String schemaRegistryUrl,
-                                     @Value("${start.stream:false}") boolean startStream ) {
+                                     @Value("${start.stream:false}") boolean startStream,
+                                     @Value( "${topic.fuel-consumption}" ) String consumptionTopic,
+                                     @Value( "${topic.fuel-consumption-avg}" ) String consumptionTopicAvg ) {
         this.streamsApplicationId = streamsApplicationId;
         this.bootstrapServers = bootstrapServers;
         this.schemaRegistryUrl = schemaRegistryUrl;
+        this.consumptionTopic = consumptionTopic;
+        this.consumptionTopicAvg = consumptionTopicAvg;
         this.startStream = startStream;
     }
 
@@ -58,7 +66,7 @@ public class AverageConsumptionStream {
     public void init() {
         log.info( "Start stream: {}", this.startStream );
         if ( startStream ) {
-            kafkaStreams = createTopology( "fuel-consumption" );
+            kafkaStreams = createTopology( consumptionTopic, consumptionTopicAvg );
             kafkaStreams.setUncaughtExceptionHandler( ( t, e ) -> {
                 log.error( format( "Thread %s: caught error %s", t.getName(), e.getMessage() ), e );
             } );
@@ -71,7 +79,7 @@ public class AverageConsumptionStream {
         }
     }
 
-    private KafkaStreams createTopology( String inputTopic ) {
+    private KafkaStreams createTopology( String inputTopic, String outputTopic ) {
         StreamsBuilder streamsBuilder = new StreamsBuilder();
 
         SpecificAvroSerde<FuelConsumption> inputSerde = new SpecificAvroSerde<>();
@@ -90,8 +98,8 @@ public class AverageConsumptionStream {
                 .stream( inputTopic, Consumed.with( Serdes.String(), inputSerde ) );
 
         stream.peek( ( key, value ) -> log.debug( "incoming message: {} {}", key, value ) )
-                // Change key in vehicleId
-                .groupBy( ( key, value ) -> eventKey( value ), Grouped.with( Serdes.String(), inputSerde ) )
+//                .groupBy( ( key, value ) -> vehicleId( value ), Grouped.with( Serdes.String(), inputSerde ) )
+                .groupByKey()
                 // Consumo medio negli ultimi 10 minuti
                 .windowedBy( TimeWindows.of( Duration.ofMinutes( 10 ) ) )
                 .aggregate( avgInitializer, ( key, sensorFuelConsumption, fuelConsumptionAverage ) -> {
@@ -102,18 +110,18 @@ public class AverageConsumptionStream {
                     fuelConsumptionAverage.setConsumptionAvg( fuelConsumptionAverage.getConsumptionTotal() /
                             fuelConsumptionAverage.getNumberOfRecords() );
                     return fuelConsumptionAverage;
-                }, Materialized.<String, FuelConsumptionAverage, WindowStore<Bytes, byte[]>>as( "eventstore" )
+                }, Materialized.<String, FuelConsumptionAverage, WindowStore<Bytes, byte[]>>as( STORE_NAME )
                         .withValueSerde( averageSerde )
                         .withRetention( Duration.ofDays( 30 ) ) )
                 .toStream()
                 .peek( ( key, value ) -> log.debug( "Windowed aggregation, key {} and value {}", key, value ) )
                 //publish our results to a topic
-                .to( "fuel-consumption-average", Produced.with( windowedSerde, averageSerde ) );
+                .to( consumptionTopicAvg, Produced.with( windowedSerde, averageSerde ) );
 
         return new KafkaStreams( streamsBuilder.build(), props() );
     }
 
-    private String eventKey( FuelConsumption value ) {
+    private String vehicleId( FuelConsumption value ) {
         return value.getVehicleId();
     }
 

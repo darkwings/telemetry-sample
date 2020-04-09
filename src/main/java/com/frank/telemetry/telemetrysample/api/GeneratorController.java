@@ -4,7 +4,11 @@ import com.facilitylive.cloud.events.sdk.FlEvents;
 import it.frank.telemetry.tracking.FuelConsumption;
 import it.frank.telemetry.tracking.VehiclePosition;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.avro.specific.SpecificRecord;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,6 +30,12 @@ public class GeneratorController {
     @Autowired
     private FlEvents flEvents;
 
+    @Value( "${topic.tracking}" )
+    private String trackingTopic;
+
+    @Value( "${topic.fuel-consumption}" )
+    private String consumptionTopic;
+
     @PostMapping("/generate")
     public ResponseEntity<String> generator() {
 
@@ -45,6 +55,11 @@ public class GeneratorController {
         private String[] vehiclesId = new String[]{ "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9",
                 "v10" };
 
+        private Producer<String, SpecificRecord> producer;
+
+        public Generator() {
+            producer = flEvents.newProducer( "telemetry-producer", false );
+        }
 
         @Override
         public void run() {
@@ -61,12 +76,11 @@ public class GeneratorController {
                         VehiclePosition position = VehiclePosition.newBuilder()
                                 .setEventId( UUID.randomUUID().toString() )
                                 .setVehicleId( vehicleId )
-                                .setKey( vehicleId )
                                 .setTimestampMs( time )
                                 .setLatitude( latitude )
                                 .setLongitude( longitude )
                                 .build();
-                        flEvents.publish( "tenant1", position );
+                        producer.send( new ProducerRecord<>( trackingTopic, vehicleId, position ) );
                     }
                     else {
                         int factor = random.nextInt( 40 );
@@ -75,11 +89,11 @@ public class GeneratorController {
                         FuelConsumption consumption = FuelConsumption.newBuilder()
                                 .setEventId( UUID.randomUUID().toString() )
                                 .setVehicleId( vehicleId )
-                                .setKey( vehicleId )
                                 .setTimestampMs( time )
                                 .setConsumption( instantConsumption )
                                 .build();
-                        flEvents.publish( "tenant1", consumption );
+                        producer.send( new ProducerRecord<>( consumptionTopic,
+                                vehicleId, consumption ) );
                     }
                     Thread.sleep( 200L );
                 }
