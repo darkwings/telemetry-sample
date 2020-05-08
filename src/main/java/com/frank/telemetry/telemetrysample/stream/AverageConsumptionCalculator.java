@@ -97,10 +97,16 @@ public class AverageConsumptionCalculator {
         KStream<String, FuelConsumption> stream = streamsBuilder
                 .stream( inputTopic, Consumed.with( Serdes.String(), inputSerde )
                         .withOffsetResetPolicy( LATEST ) );
+
+        // TODO: probabilmente per lo state store è meglio usare oggetti non AVRO
+        // in questo modo c'è più libertà di implementare business logic diverse.
+        // L'output finale su topic invece è bene che sia sempre AVRO
         stream
                 // Filter by service path header
                 .transformValues( () -> new ServicePathFilter<>( messageFilter ) )
+                // Just log
                 .peek( ( key, value ) -> log.debug( "incoming message: {} {}", key, value ) )
+                // Group by key
 //                .groupBy( ( key, value ) -> vehicleId( value ), Grouped.with( Serdes.String(), inputSerde ) )
                 .groupByKey()
                 // Considero i dati degli ultimi 10 minuti
@@ -119,8 +125,9 @@ public class AverageConsumptionCalculator {
                         .withValueSerde( averageSerde )
                         .withRetention( Duration.ofDays( 5 ) ) )
                 .toStream()
-                // Change back the key to vehicleId
+                // Cambio chiave con vehicleId
                 .selectKey( ( k, v ) -> v.getVehicleId() )
+                // Just log
                 .peek( ( key, value ) -> log.debug( "Windowed aggregation, key {} and value {}", key, value ) )
                 // Adding service path headers
                 .transformValues( () -> new ServicePathEnricher<>( messageFilter ) )
