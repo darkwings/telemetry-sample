@@ -84,6 +84,11 @@
         "name": "FuelConsumptionAverage",
         "fields": [
             {
+                "name": "key",
+                "type": "string",
+                "doc": "The partition key"
+            },
+            {
                 "name": "vehicleId",
                 "type": "string",
                 "doc": "The vehicleId"

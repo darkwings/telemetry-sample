@@ -1,6 +1,7 @@
 package com.frank.telemetry.telemetrysample.stream;
 
 import com.facilitylive.cloud.events.sdk.liveservices.MessageFilter;
+import com.facilitylive.cloud.events.sdk.streams.dsl.HeaderEnricher;
 import com.facilitylive.cloud.events.sdk.streams.dsl.ServicePathEnricher;
 import com.facilitylive.cloud.events.sdk.streams.dsl.ServicePathFilter;
 import com.facilitylive.cloud.events.sdk.streams.dsl.TenantFilter;
@@ -120,6 +121,7 @@ public class AverageConsumptionCalculator {
                 // precedente dell'aggregate, in questo caso l'oggetto FuelConsumptionAverage.
                 .aggregate( avgInitializer, ( key, sensorData, avg ) -> {
                     avg.setVehicleId( sensorData.getVehicleId() );
+                    avg.setKey( sensorData.getVehicleId() );
                     avg.setNumberOfRecords( avg.getNumberOfRecords() + 1 );
                     avg.setConsumptionTotal( avg.getConsumptionTotal() +
                             sensorData.getConsumption() );
@@ -135,7 +137,7 @@ public class AverageConsumptionCalculator {
                 // Just log
                 .peek( ( key, value ) -> log.debug( "Windowed aggregation, key {} and value {}", key, value ) )
                 // Adding service path headers
-                .transformValues( () -> new ServicePathEnricher<>( messageFilter ) )
+                .transformValues( () -> new HeaderEnricher<>( messageFilter ) )
                 //publish our results to avg topic
                 .to( outputTopic, Produced.with( Serdes.String(), averageSerde ) );
 
