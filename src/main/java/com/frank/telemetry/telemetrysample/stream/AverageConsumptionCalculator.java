@@ -136,7 +136,7 @@ public class AverageConsumptionCalculator {
                 .selectKey( ( k, v ) -> v.getVehicleId() )
                 // Just log
                 .peek( ( key, value ) -> log.debug( "Windowed aggregation, key {} and value {}", key, value ) )
-                // Adding service path headers
+                // Adding FL headers
                 .transformValues( () -> new HeaderEnricher<>( messageFilter ) )
                 //publish our results to avg topic
                 .to( outputTopic, Produced.with( Serdes.String(), averageSerde ) );
