@@ -3,6 +3,7 @@ package com.frank.telemetry.telemetrysample.stream;
 import com.facilitylive.cloud.events.sdk.liveservices.MessageFilter;
 import com.facilitylive.cloud.events.sdk.streams.dsl.ServicePathEnricher;
 import com.facilitylive.cloud.events.sdk.streams.dsl.ServicePathFilter;
+import com.facilitylive.cloud.events.sdk.streams.dsl.TenantFilter;
 import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
 import io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde;
 import it.frank.telemetry.tracking.FuelConsumption;
@@ -64,7 +65,7 @@ public class AverageConsumptionCalculator {
 
     private KafkaStreams kafkaStreams;
 
-
+    private String tenant = "tenant"; // the target tenant, forced for this example
 
     @PostConstruct
     public void init() {
@@ -102,8 +103,12 @@ public class AverageConsumptionCalculator {
         // in questo modo c'è più libertà di implementare business logic diverse.
         // L'output finale su topic invece è bene che sia sempre AVRO
         stream
+                // Filter by tenant
+                .transformValues( () -> new TenantFilter<>( tenant ) )
                 // Filter by service path header
                 .transformValues( () -> new ServicePathFilter<>( messageFilter ) )
+                // Stopping null values
+                .filter( ( s, fuelConsumption ) -> fuelConsumption != null )
                 // Just log
                 .peek( ( key, value ) -> log.debug( "incoming message: {} {}", key, value ) )
                 // Group by key
@@ -113,14 +118,14 @@ public class AverageConsumptionCalculator {
                 .windowedBy( TimeWindows.of( Duration.ofMinutes( 10 ) ) )
                 // l'operatore aggregate() è stateful, ha bisogno di uno state store cui memorizzare la versione
                 // precedente dell'aggregate, in questo caso l'oggetto FuelConsumptionAverage.
-                .aggregate( avgInitializer, ( key, sensorFuelConsumption, fuelConsumptionAverage ) -> {
-                    fuelConsumptionAverage.setVehicleId( sensorFuelConsumption.getVehicleId() );
-                    fuelConsumptionAverage.setNumberOfRecords( fuelConsumptionAverage.getNumberOfRecords() + 1 );
-                    fuelConsumptionAverage.setConsumptionTotal( fuelConsumptionAverage.getConsumptionTotal() +
-                            sensorFuelConsumption.getConsumption() );
-                    fuelConsumptionAverage.setConsumptionAvg( fuelConsumptionAverage.getConsumptionTotal() /
-                            fuelConsumptionAverage.getNumberOfRecords() );
-                    return fuelConsumptionAverage;
+                .aggregate( avgInitializer, ( key, sensorData, avg ) -> {
+                    avg.setVehicleId( sensorData.getVehicleId() );
+                    avg.setNumberOfRecords( avg.getNumberOfRecords() + 1 );
+                    avg.setConsumptionTotal( avg.getConsumptionTotal() +
+                            sensorData.getConsumption() );
+                    avg.setConsumptionAvg( avg.getConsumptionTotal() /
+                            avg.getNumberOfRecords() );
+                    return avg;
                 }, Materialized.<String, FuelConsumptionAverage, WindowStore<Bytes, byte[]>>as( STORE_NAME )
                         .withValueSerde( averageSerde )
                         .withRetention( Duration.ofDays( 5 ) ) )
@@ -145,6 +150,7 @@ public class AverageConsumptionCalculator {
         FuelConsumptionAverage average = new FuelConsumptionAverage();
         average.setConsumptionTotal( 0.0 );
         average.setNumberOfRecords( 0L );
+        average.setTenantId( tenant );
         return average;
     };
 
@@ -154,7 +160,7 @@ public class AverageConsumptionCalculator {
         props.put( StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers );
 
         // props.put( StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "0" ); // TODO
-        props.put( StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "15000" );
+        props.put( StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "10000" );
 
         // Exactly once processing!!
         props.put( StreamsConfig.PROCESSING_GUARANTEE_CONFIG, StreamsConfig.EXACTLY_ONCE );
