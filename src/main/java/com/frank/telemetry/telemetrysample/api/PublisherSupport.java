@@ -16,9 +16,9 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import java.time.Clock;
-import java.util.Properties;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static java.lang.Thread.sleep;
 
@@ -37,6 +37,9 @@ public class PublisherSupport {
 
     @Value("${topic.fuel-consumption}")
     private String consumptionTopic;
+
+    @Value("${mock.publisher.fleet.size:100}")
+    private int fleetSize;
 
     private Producer<String, SpecificRecord> producer;
 
@@ -79,7 +82,7 @@ public class PublisherSupport {
     }
 
     public Generator generator() {
-        return new Generator(producer, trackingTopic, consumptionTopic);
+        return new Generator(producer, trackingTopic, consumptionTopic, fleetSize);
     }
 
 
@@ -90,16 +93,22 @@ public class PublisherSupport {
 
         double consumption = 5.00;
 
-        private final String[] vehicleIds = new String[]{"v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"};
+        private final List<String> vehicleIds;
 
         private final Producer<String, SpecificRecord> producer;
         private final String trackingTopic;
         private final String consumptionTopic;
 
-        public Generator(Producer<String, SpecificRecord> producer, String trackingTopic, String consumptionTopic) {
+        private final int fleetSize;
+
+        public Generator(Producer<String, SpecificRecord> producer, String trackingTopic,
+                         String consumptionTopic, int fleetSize) {
+            vehicleIds = IntStream.of(0, fleetSize).mapToObj(v -> "v" + v).collect(Collectors.toList());
+
             this.producer = producer;
             this.trackingTopic = trackingTopic;
             this.consumptionTopic = consumptionTopic;
+            this.fleetSize = fleetSize;
         }
 
         @Override
@@ -111,8 +120,8 @@ public class PublisherSupport {
             try {
                 while (true) {
                     long time = Clock.systemUTC().millis();
-                    int index = random.nextInt(10);
-                    String vehicleId = vehicleIds[index];
+                    int index = random.nextInt(fleetSize);
+                    String vehicleId = vehicleIds.get(index);
                     if (time % 2 == 0) {
                         positionC++;
                         if (positionC % 100 == 0) {

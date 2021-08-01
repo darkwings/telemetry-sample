@@ -7,8 +7,8 @@ To start with stream
 
 To start only as a producer
 
-    java -Dstart.stream=false -Dserver.port=8010 -jar telemetry-sample-0.0.1-SNAPSHOT.jar
+    java -Dstart.stream=false -Dserver.port=8010 -Dmock.publisher.fleet.size=200 -jar telemetry-sample-0.0.1-SNAPSHOT.jar
 
-To generate messages
+To generate messages from the producer instance
 
     curl -X POST http://localhost:8010/generate
