@@ -38,7 +38,7 @@ public class PublisherSupport {
     @Value("${topic.fuel-consumption}")
     private String consumptionTopic;
 
-    @Value("${mock.publisher.fleet.size:100}")
+    @Value("${mock.publisher.fleet.size:10}")
     private int fleetSize;
 
     private Producer<String, SpecificRecord> producer;
@@ -91,6 +91,7 @@ public class PublisherSupport {
         double latitude = 45.00000;
         double longitude = 6.00000;
 
+        // Litres per 100km
         double consumption = 5.00;
 
         private final List<String> vehicleIds;
@@ -153,14 +154,12 @@ public class PublisherSupport {
                                 .setConsumption(instantConsumption)
                                 .setKey(vehicleId)
                                 .build();
-                        producer.send(new ProducerRecord<>(consumptionTopic,
-                                vehicleId, consumption));
+                        producer.send(new ProducerRecord<>(consumptionTopic, vehicleId, consumption));
                     }
                     sleep(50L);
-
-
                 }
-            } catch (Exception e) {
+            }
+            catch (Exception e) {
                 log.error("Error", e);
             }
         }

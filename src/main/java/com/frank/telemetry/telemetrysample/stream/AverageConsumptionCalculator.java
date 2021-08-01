@@ -42,9 +42,6 @@ public class AverageConsumptionCalculator {
     @Value("${streams.application.id}")
     private String streamsApplicationId;
 
-    @Value("${streams.application.id}")
-    private String applicationName;
-
     @Value("${event.sdk.bootstrap.servers}")
     private String bootstrapServers;
 
@@ -173,8 +170,8 @@ public class AverageConsumptionCalculator {
         // Limits the deduplication cache to 50Kb
         props.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "50000");
 
-        // commits every 5 seconds on the destination topic / changelog
-        props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "5000");
+        // commits every 20 seconds on the destination topic / changelog
+        props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "20000");
 
         // Maximize options to recover from a standby replica of the changelog
         props.put(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG, 2);
