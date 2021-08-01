@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Properties;
 
 import static io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG;
+import static java.time.Duration.*;
 import static java.util.Collections.singletonMap;
 import static org.apache.kafka.streams.Topology.AutoOffsetReset.LATEST;
 import static org.apache.kafka.streams.errors.StreamsUncaughtExceptionHandler.StreamThreadExceptionResponse.REPLACE_THREAD;
@@ -96,7 +97,7 @@ public class AverageConsumptionCalculator {
             kafkaStreams.setStateListener((newState, oldState) -> {
                 log.info("Setting new state {} (old was {})", newState, oldState);
                 if (newState == KafkaStreams.State.REBALANCING) {
-                    // Do anything that's necessary to manage rebalancing
+                    // Do anything that's necessary to manage rebalance
                     log.info("Rebalance in progress");
                 }
             });
@@ -118,7 +119,9 @@ public class AverageConsumptionCalculator {
                 false);
 
         KStream<String, FuelConsumption> stream = streamsBuilder
-                .stream(inputTopic, Consumed.with(Serdes.String(), inputSerde).withOffsetResetPolicy(LATEST));
+                .stream(inputTopic, Consumed.with(Serdes.String(), inputSerde)
+                        .withOffsetResetPolicy(LATEST)
+                        .withTimestampExtractor(new FuelConsumptionTimestampExtractor()));
 
         // Control compaction of changelog topic
         Map<String, String> topicConfigs = new HashMap<>();
@@ -128,7 +131,7 @@ public class AverageConsumptionCalculator {
         stream
                 .peek((key, value) -> log.debug("incoming message: {} {}", key, value))
                 .groupByKey()
-                .windowedBy(TimeWindows.of(Duration.ofMinutes(10)).grace(Duration.ofMinutes(1)))
+                .windowedBy(TimeWindows.of(ofMinutes(5)).grace(ofSeconds(20)))
                 .aggregate(avgInitializer, (key, sensorData, avg) -> {
                     avg.setVehicleId(sensorData.getVehicleId());
                     avg.setKey(sensorData.getVehicleId());
@@ -139,7 +142,7 @@ public class AverageConsumptionCalculator {
                 }, Materialized.<String, FuelConsumptionAverage, WindowStore<Bytes, byte[]>>as(STORE_NAME)
                         .withValueSerde(averageSerde)
                         .withLoggingEnabled(topicConfigs)
-                        .withRetention(Duration.ofHours(1)))
+                        .withRetention(ofMinutes(15)))
                 .toStream()
                 // Select new key (vehicleId). The windowing process emits a Windowed<String> keyed object
                 .selectKey((k, v) -> v.getVehicleId())
@@ -167,9 +170,13 @@ public class AverageConsumptionCalculator {
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, streamsApplicationId);
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
 
-        props.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "1000");
+        // Limits the deduplication cache to 50Kb
+        props.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "50000");
+
+        // commits every 5 seconds on the destination topic / changelog
         props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "5000");
 
+        // Maximize options to recover from a standby replica of the changelog
         props.put(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG, 2);
 
         // Exactly once processing!!
@@ -180,6 +187,7 @@ public class AverageConsumptionCalculator {
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, SpecificAvroSerde.class.getName());
         props.put(KafkaAvroSerializerConfig.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl);
 
+        // The state store directory
         props.put(StreamsConfig.STATE_DIR_CONFIG, stateStoreDir);
 
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
