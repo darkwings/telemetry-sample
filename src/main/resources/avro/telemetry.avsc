@@ -15,11 +15,6 @@
                 "doc": "The partition key"
             },
             {
-                "name": "tenantId",
-                "type": "string",
-                "doc": "The tenan"
-            },
-            {
                 "name": "eventId",
                 "type": "string",
                 "doc": "The eventID"
@@ -57,11 +52,6 @@
                 "doc": "The partition key"
             },
             {
-                "name": "tenantId",
-                "type": "string",
-                "doc": "The tenant"
-            },
-            {
                 "name": "eventId",
                 "type": "string",
                 "doc": "The eventID"
@@ -92,11 +82,6 @@
                 "name": "vehicleId",
                 "type": "string",
                 "doc": "The vehicleId"
-            },
-            {
-                "name": "tenantId",
-                "type": "string",
-                "doc": "The tenant"
             },
             {
                 "name": "consumptionAvg",

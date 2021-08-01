@@ -1,10 +1,5 @@
 package com.frank.telemetry.telemetrysample.stream;
 
-import com.facilitylive.cloud.events.sdk.liveservices.MessageFilter;
-import com.facilitylive.cloud.events.sdk.streams.dsl.HeaderEnricher;
-import com.facilitylive.cloud.events.sdk.streams.dsl.ServicePathEnricher;
-import com.facilitylive.cloud.events.sdk.streams.dsl.ServicePathFilter;
-import com.facilitylive.cloud.events.sdk.streams.dsl.TenantFilter;
 import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
 import io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde;
 import it.frank.telemetry.tracking.FuelConsumption;
@@ -16,9 +11,9 @@ import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.errors.StreamsUncaughtExceptionHandler;
 import org.apache.kafka.streams.kstream.*;
 import org.apache.kafka.streams.state.WindowStore;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -26,10 +21,11 @@ import javax.annotation.PostConstruct;
 import java.time.Duration;
 import java.util.Properties;
 
-import static io.confluent.kafka.serializers.AbstractKafkaAvroSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG;
+import static io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG;
 import static java.lang.String.format;
 import static java.util.Collections.singletonMap;
 import static org.apache.kafka.streams.Topology.AutoOffsetReset.LATEST;
+import static org.apache.kafka.streams.errors.StreamsUncaughtExceptionHandler.StreamThreadExceptionResponse.REPLACE_THREAD;
 
 /**
  * @author ftorriani
@@ -58,24 +54,23 @@ public class AverageConsumptionCalculator {
     @Value("${topic.fuel-consumption-avg}")
     private String consumptionTopicAvg;
 
-    @Autowired
-    private MessageFilter messageFilter;
-
     @Value("${start.stream:false}")
     private boolean startStream;
 
-    private KafkaStreams kafkaStreams;
+    @Value("${event.sdk.state.store.dir:/tmp/telemetry-0}")
+    private String stateStoreDir;
 
-    private String tenant = "tenant"; // the target tenant, forced for this example
+    private KafkaStreams kafkaStreams;
 
     @PostConstruct
     public void init() {
         log.info( "Start stream: {}", this.startStream );
         if ( startStream ) {
             kafkaStreams = createTopology( consumptionTopic, consumptionTopicAvg );
-            kafkaStreams.setUncaughtExceptionHandler( ( t, e ) -> {
-                log.error( format( "Thread %s: caught error %s", t.getName(), e.getMessage() ), e );
-            } );
+            kafkaStreams.setUncaughtExceptionHandler(exception -> {
+                log.error("Streams exception ", exception);
+                return REPLACE_THREAD;
+            });
             kafkaStreams.setStateListener( ( newState, oldState ) -> {
                 log.info( "Setting new state {} (old was {})", newState, oldState );
             } );
@@ -97,28 +92,14 @@ public class AverageConsumptionCalculator {
                 false );
 
         KStream<String, FuelConsumption> stream = streamsBuilder
-                .stream( inputTopic, Consumed.with( Serdes.String(), inputSerde )
-                        .withOffsetResetPolicy( LATEST ) );
+                .stream( inputTopic, Consumed.with( Serdes.String(), inputSerde ).withOffsetResetPolicy( LATEST ) );
 
-        // TODO: probabilmente per lo state store è meglio usare oggetti non AVRO
-        // in questo modo c'è più libertà di implementare business logic diverse.
-        // L'output finale su topic invece è bene che sia sempre AVRO
         stream
-                // Filter by tenant
-                .transformValues( () -> new TenantFilter<>( tenant ) )
-                // Filter by service path header
-                .transformValues( () -> new ServicePathFilter<>( messageFilter ) )
-                // Stopping null values
-                .filter( ( s, fuelConsumption ) -> fuelConsumption != null )
                 // Just log
                 .peek( ( key, value ) -> log.debug( "incoming message: {} {}", key, value ) )
                 // Group by key
-//                .groupBy( ( key, value ) -> vehicleId( value ), Grouped.with( Serdes.String(), inputSerde ) )
                 .groupByKey()
-                // Considero i dati degli ultimi 10 minuti
                 .windowedBy( TimeWindows.of( Duration.ofMinutes( 10 ) ) )
-                // l'operatore aggregate() è stateful, ha bisogno di uno state store cui memorizzare la versione
-                // precedente dell'aggregate, in questo caso l'oggetto FuelConsumptionAverage.
                 .aggregate( avgInitializer, ( key, sensorData, avg ) -> {
                     avg.setVehicleId( sensorData.getVehicleId() );
                     avg.setKey( sensorData.getVehicleId() );
@@ -130,14 +111,12 @@ public class AverageConsumptionCalculator {
                     return avg;
                 }, Materialized.<String, FuelConsumptionAverage, WindowStore<Bytes, byte[]>>as( STORE_NAME )
                         .withValueSerde( averageSerde )
-                        .withRetention( Duration.ofDays( 5 ) ) )
+                        .withRetention( Duration.ofDays( 1 ) ) )
                 .toStream()
-                // Cambio chiave con vehicleId
+                // Select new key (vehicleId). The windowing process emits a Windowed<String> keyed object
                 .selectKey( ( k, v ) -> v.getVehicleId() )
                 // Just log
                 .peek( ( key, value ) -> log.debug( "Windowed aggregation, key {} and value {}", key, value ) )
-                // Adding FL headers
-                .transformValues( () -> new HeaderEnricher<>( messageFilter ) )
                 //publish our results to avg topic
                 .to( outputTopic, Produced.with( Serdes.String(), averageSerde ) );
 
@@ -152,7 +131,6 @@ public class AverageConsumptionCalculator {
         FuelConsumptionAverage average = new FuelConsumptionAverage();
         average.setConsumptionTotal( 0.0 );
         average.setNumberOfRecords( 0L );
-        average.setTenantId( tenant );
         return average;
     };
 
@@ -161,8 +139,8 @@ public class AverageConsumptionCalculator {
         props.put( StreamsConfig.APPLICATION_ID_CONFIG, streamsApplicationId );
         props.put( StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers );
 
-        // props.put( StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "0" ); // TODO
-        props.put( StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "10000" );
+        props.put( StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "1000" );
+        props.put( StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "5000" );
 
         // Exactly once processing!!
         props.put( StreamsConfig.PROCESSING_GUARANTEE_CONFIG, StreamsConfig.EXACTLY_ONCE );
@@ -171,6 +149,8 @@ public class AverageConsumptionCalculator {
         props.put( StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.StringSerde.class.getName() );
         props.put( StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, SpecificAvroSerde.class.getName() );
         props.put( KafkaAvroSerializerConfig.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl );
+
+        props.put( StreamsConfig.STATE_DIR_CONFIG, stateStoreDir);
 
         props.put( ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest" );
 
