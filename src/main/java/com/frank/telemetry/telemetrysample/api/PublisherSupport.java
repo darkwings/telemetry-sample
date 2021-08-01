@@ -151,8 +151,7 @@ public class PublisherSupport {
 
 
                 }
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 log.error("Error", e);
             }
         }

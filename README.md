@@ -3,7 +3,7 @@
 To start with stream
 
     java -Dstart.stream=true -jar telemetry-sample-0.0.1-SNAPSHOT.jar
-    java -Dstart.stream=true -Dserver.port=8070 -Devent.sdk.state.store.dir=/tmp/telemetry-1 -jar telemetry-sample-0.0.1-SNAPSHOT.jar
+    java -Dstart.stream=true -Dserver.port=8070 -Devent.sdk.state.store.dir=/tmp/telemetry-1 -Dgroup.instance.id=telemetry-2 -jar telemetry-sample-0.0.1-SNAPSHOT.jar
 
 To start only as a producer
 
