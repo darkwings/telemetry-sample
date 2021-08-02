@@ -1,22 +1,23 @@
 package com.frank.telemetry.telemetrysample.monitor;
 
-import io.confluent.kafka.serializers.KafkaAvroSerializer;
+import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
+import io.confluent.kafka.streams.serdes.avro.SpecificAvroDeserializer;
 import it.frank.telemetry.tracking.FuelConsumptionAverage;
 import lombok.extern.log4j.Log4j2;
 import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.WakeupException;
-import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import java.time.Duration;
-import java.time.temporal.TemporalUnit;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import static java.lang.String.format;
 
 /**
  * Implementazione di test di un possibile monitor per i consumi medi dei veicoli.
@@ -44,6 +45,7 @@ public class ConsumptionMonitor {
 
     private Consumer<String, FuelConsumptionAverage> consumer;
 
+    private final ExecutorService service = Executors.newFixedThreadPool(1);
 
     Map<String, Double> monitor = new HashMap<>();
 
@@ -56,37 +58,38 @@ public class ConsumptionMonitor {
 
         if (!startStream) {
             // Basic consumer configuration
+            log.info("Starting consumption monitor");
             consumer = new KafkaConsumer<>(props());
-            consumer.subscribe(Collections.singletonList("consumptionTopicAvg"));
-
-            try {
-                while (true) {
-                    ConsumerRecords<String, FuelConsumptionAverage> records = consumer.poll(Duration.ofSeconds(10));
-                    for (ConsumerRecord<String, FuelConsumptionAverage> record : records) {
-                        log.debug("topic = {}, partition = {}, offset = {}, customer = {}, country = {}\n",
-                                record.topic(), record.partition(), record.offset(),
-                                record.key(), record.value());
-                        FuelConsumptionAverage average = record.value();
-                        monitor.put(average.getVehicleId(), average.getConsumptionAvg());
-                    }
-                    consumer.commitAsync(new OffsetCommitCallback() {
-                        public void onComplete(Map<TopicPartition, OffsetAndMetadata> offsets, Exception e) {
-                            if (e != null) {
-                                log.error("Commit failed for offsets {}", offsets, e);
-                            }
+            consumer.subscribe(Collections.singletonList(consumptionTopicAvg));
+            service.submit(() -> {
+                try {
+                    while (true) {
+                        ConsumerRecords<String, FuelConsumptionAverage> records = consumer.poll(Duration.ofSeconds(2));
+                        for (ConsumerRecord<String, FuelConsumptionAverage> record : records) {
+                            log.debug("topic = {}, partition = {}, offset = {}, customer = {}, country = {}\n",
+                                    record.topic(), record.partition(), record.offset(),
+                                    record.key(), record.value());
+                            FuelConsumptionAverage average = record.value();
+                            monitor.put(average.getVehicleId(), average.getConsumptionAvg());
                         }
-                    });
+                        consumer.commitAsync((offsets, e) -> {
+                            if (e != null) {
+                                log.error(format("Commit failed for offsets %s", offsets), e);
+                            }
+                        });
+                    }
                 }
-            }
-            catch (WakeupException e) {
-                log.info("Exiting");
-            }
-            catch (Exception e) {
-                log.error("Unexpected error", e);
-            }
-            finally {
-                consumer.close();
-            }
+                catch (WakeupException e) {
+                    log.info("Exiting");
+                }
+                catch (Exception e) {
+                    log.error("Unexpected error", e);
+                }
+                finally {
+                    consumer.close();
+                }
+            });
+
 
             Runtime.getRuntime().addShutdownHook(new Thread(() -> consumer.wakeup()));
         }
@@ -100,8 +103,8 @@ public class ConsumptionMonitor {
         props.put(ConsumerConfig.CLIENT_ID_CONFIG, UUID.randomUUID().toString());
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "monitor.avg");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SpecificAvroDeserializer.class.getName());
         props.put(KafkaAvroSerializerConfig.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl);
         return props;
     }

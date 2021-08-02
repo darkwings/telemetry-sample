@@ -17,6 +17,8 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import java.time.Clock;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -42,6 +44,8 @@ public class PublisherSupport {
     private int fleetSize;
 
     private Producer<String, SpecificRecord> producer;
+
+    private final ExecutorService executorService = Executors.newFixedThreadPool(1);
 
     @PostConstruct
     public void init() {
@@ -81,10 +85,10 @@ public class PublisherSupport {
         return props;
     }
 
-    public Generator generator() {
-        return new Generator(producer, trackingTopic, consumptionTopic, fleetSize);
+    public void startGenerator() {
+        log.info("Starting mock message generator");
+        executorService.submit(new Generator(producer, trackingTopic, consumptionTopic, fleetSize));
     }
-
 
     private static class Generator implements Runnable {
 
@@ -104,12 +108,13 @@ public class PublisherSupport {
 
         public Generator(Producer<String, SpecificRecord> producer, String trackingTopic,
                          String consumptionTopic, int fleetSize) {
-            vehicleIds = IntStream.of(0, fleetSize).mapToObj(v -> "v" + v).collect(Collectors.toList());
-
             this.producer = producer;
             this.trackingTopic = trackingTopic;
             this.consumptionTopic = consumptionTopic;
             this.fleetSize = fleetSize;
+            vehicleIds = IntStream.range(0, this.fleetSize).mapToObj(v -> "v" + v).collect(Collectors.toList());
+            log.info("Fleet size: {}", this.fleetSize);
+            log.info("Vehicles ID size: {}", vehicleIds.size());
         }
 
         @Override

@@ -29,10 +29,7 @@ public class GeneratorController {
 
     @PostMapping("/generate")
     public ResponseEntity<String> generator() {
-
-        ExecutorService executorService = Executors.newFixedThreadPool(2);
-        executorService.submit(publisherSupport.generator());
-
+        publisherSupport.startGenerator();
         return new ResponseEntity<>("OK", HttpStatus.OK);
     }
 
