@@ -1,6 +1,5 @@
 package com.frank.telemetry.telemetrysample.monitor;
 
-import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializerConfig;
 import io.confluent.kafka.streams.serdes.avro.SpecificAvroDeserializer;
 import it.frank.telemetry.tracking.FuelConsumptionAverage;
@@ -12,16 +11,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static java.lang.String.format;
+import static java.time.Duration.ofMillis;
 
 /**
  * Implementazione di test di un possibile monitor per i consumi medi dei veicoli.
- * NON E' DA PRENDERE A MODELLO PER USO IN PROD
+ * <p>
+ * <strong>DISCLAIMER: NON E' DA PRENDERE A MODELLO PER USO SERIO</strong>
+ * <p>
  * Qui supponiamo di avere un solo consumer attivo su tutte le partizioni del topic fuel-consumption-avg,
  * per cui riceviamo tutti i dati.
  * <p>
@@ -64,7 +65,7 @@ public class ConsumptionMonitor {
             service.submit(() -> {
                 try {
                     while (true) {
-                        ConsumerRecords<String, FuelConsumptionAverage> records = consumer.poll(Duration.ofSeconds(2));
+                        ConsumerRecords<String, FuelConsumptionAverage> records = consumer.poll(ofMillis(100));
                         for (ConsumerRecord<String, FuelConsumptionAverage> record : records) {
                             log.debug("topic = {}, partition = {}, offset = {}, customer = {}, country = {}\n",
                                     record.topic(), record.partition(), record.offset(),
@@ -80,7 +81,7 @@ public class ConsumptionMonitor {
                     }
                 }
                 catch (WakeupException e) {
-                    log.info("Exiting");
+                    log.info("Woke up. Stopping loop");
                 }
                 catch (Exception e) {
                     log.error("Unexpected error", e);

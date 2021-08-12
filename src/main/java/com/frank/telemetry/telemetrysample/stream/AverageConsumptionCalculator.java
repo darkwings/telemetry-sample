@@ -19,13 +19,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
 import static io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG;
-import static java.time.Duration.*;
+import static java.time.Duration.ofMinutes;
+import static java.time.Duration.ofSeconds;
 import static java.util.Collections.singletonMap;
 import static org.apache.kafka.streams.Topology.AutoOffsetReset.LATEST;
 import static org.apache.kafka.streams.errors.StreamsUncaughtExceptionHandler.StreamThreadExceptionResponse.REPLACE_THREAD;
@@ -107,23 +107,14 @@ public class AverageConsumptionCalculator {
     private KafkaStreams createTopology(String inputTopic, String outputTopic) {
         StreamsBuilder streamsBuilder = new StreamsBuilder();
 
-        SpecificAvroSerde<FuelConsumption> inputSerde = new SpecificAvroSerde<>();
-        inputSerde.configure(singletonMap(SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl),
-                false);
+        SpecificAvroSerde<FuelConsumption> inputSerde = inputSerde();
 
-        SpecificAvroSerde<FuelConsumptionAverage> averageSerde = new SpecificAvroSerde<>();
-        averageSerde.configure(singletonMap(SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl),
-                false);
+        SpecificAvroSerde<FuelConsumptionAverage> movingAverageSerde = movingAverageSerde();
 
         KStream<String, FuelConsumption> stream = streamsBuilder
                 .stream(inputTopic, Consumed.with(Serdes.String(), inputSerde)
                         .withOffsetResetPolicy(LATEST)
                         .withTimestampExtractor(new FuelConsumptionTimestampExtractor()));
-
-        // Control compaction of changelog topic
-        Map<String, String> topicConfigs = new HashMap<>();
-        topicConfigs.put("segment.bytes", "536870912");
-        topicConfigs.put("min.cleanable.dirty.ratio", "0.3");
 
         stream
                 .peek((key, value) -> log.debug("incoming message: {} {}", key, value))
@@ -137,8 +128,8 @@ public class AverageConsumptionCalculator {
                     avg.setConsumptionAvg(avg.getConsumptionTotal() / avg.getNumberOfRecords());
                     return avg;
                 }, Materialized.<String, FuelConsumptionAverage, WindowStore<Bytes, byte[]>>as(STORE_NAME)
-                        .withValueSerde(averageSerde)
-                        .withLoggingEnabled(topicConfigs)
+                        .withValueSerde(movingAverageSerde)
+                        .withLoggingEnabled(compactionConfigs())
                         .withRetention(ofMinutes(15)))
                 .toStream()
                 // Select new key (vehicleId). The windowing process emits a Windowed<String> keyed object
@@ -146,13 +137,28 @@ public class AverageConsumptionCalculator {
                 // Just log
                 .peek((key, value) -> log.debug("Windowed aggregation, key {} and value {}", key, value))
                 //publish our results to avg topic
-                .to(outputTopic, Produced.with(Serdes.String(), averageSerde));
+                .to(outputTopic, Produced.with(Serdes.String(), movingAverageSerde));
 
         return new KafkaStreams(streamsBuilder.build(), props());
     }
 
-    private String vehicleId(FuelConsumption value) {
-        return value.getVehicleId();
+    private Map<String, String> compactionConfigs() {
+        Map<String, String> topicConfigs = new HashMap<>();
+        topicConfigs.put("segment.bytes", "536870912");
+        topicConfigs.put("min.cleanable.dirty.ratio", "0.3");
+        return topicConfigs;
+    }
+
+    private SpecificAvroSerde<FuelConsumptionAverage> movingAverageSerde() {
+        SpecificAvroSerde<FuelConsumptionAverage> serde = new SpecificAvroSerde<>();
+        serde.configure(singletonMap(SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl), false);
+        return serde;
+    }
+
+    private SpecificAvroSerde<FuelConsumption> inputSerde() {
+        SpecificAvroSerde<FuelConsumption> serde = new SpecificAvroSerde<>();
+        serde.configure(singletonMap(SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl), false);
+        return serde;
     }
 
     Initializer<FuelConsumptionAverage> avgInitializer = () -> {
@@ -170,8 +176,8 @@ public class AverageConsumptionCalculator {
         // Limits the deduplication cache to 50Kb
         props.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "50000");
 
-        // commits every 20 seconds on the destination topic / changelog
-        props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "20000");
+        // commits every 10 seconds on the destination topic / changelog
+        props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, "10000");
 
         // Maximize options to recover from a standby replica of the changelog
         props.put(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG, 2);
@@ -190,7 +196,7 @@ public class AverageConsumptionCalculator {
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
 
         // https://github.com/confluentinc/schema-registry/pull/680
-        // MONOSCHEMA
+        // MONO-SCHEMA
 //        props.put( "value.subject.name.strategy", "io.confluent.kafka.serializers.subject.TopicRecordNameStrategy" );
         return props;
     }
